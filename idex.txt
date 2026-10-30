@@ -1,0 +1,230 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { AppStorage } from './utils/storage';
+import { User, Project, VaultItem, ChatMessage, Announcement, OwnerProfile } from './types';
+import Navbar from './components/Navbar';
+import MobileNav from './components/MobileNav';
+import Footer from './components/Footer';
+import AuthModal from './components/AuthModal';
+import GlobalSearchModal from './components/GlobalSearchModal';
+import NotificationCenter from './components/NotificationCenter';
+import { PrivacyModal, TermsModal } from './components/LegalModals';
+
+import HomeView from './views/HomeView';
+import AboutView from './views/AboutView';
+import StudioView from './views/StudioView';
+import CommunityView from './views/CommunityView';
+import VaultView from './views/VaultView';
+import OwnerDashboardView from './views/OwnerDashboardView';
+import MemberDashboardView from './views/MemberDashboardView';
+import ContactView from './views/ContactView';
+
+export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(AppStorage.getCurrentUser());
+  const [activeTab, setActiveTab] = useState<string>('home');
+  const [projects, setProjects] = useState<Project[]>(AppStorage.getProjects());
+  const [vaultItems, setVaultItems] = useState<VaultItem[]>(AppStorage.getVaultItems());
+  const [messages, setMessages] = useState<ChatMessage[]>(AppStorage.getChatMessages());
+  const [announcements, setAnnouncements] = useState<Announcement[]>(AppStorage.getAnnouncements());
+  const [ownerProfile, setOwnerProfile] = useState<OwnerProfile>(AppStorage.getOwnerProfile());
+
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+
+  // Cross-tab real-time sync with BroadcastChannel
+  useEffect(() => {
+    const handleSync = (e: CustomEvent<any>) => {
+      const { type, data } = e.detail;
+      if (type === 'USER_CHANGED') setCurrentUser(data);
+      if (type === 'PROJECTS_UPDATED') setProjects(data);
+      if (type === 'VAULT_UPDATED') setVaultItems(data);
+      if (type === 'CHAT_UPDATED') setMessages(data);
+      if (type === 'ANNOUNCEMENTS_UPDATED') setAnnouncements(data);
+      if (type === 'PROFILE_UPDATED') setOwnerProfile(data);
+    };
+
+    window.addEventListener('nduzavel_storage_sync' as any, handleSync);
+    return () => window.removeEventListener('nduzavel_storage_sync' as any, handleSync);
+  }, []);
+
+  const handleLogout = () => {
+    AppStorage.setCurrentUser(null);
+    setCurrentUser(null);
+    if (activeTab === 'vault' || activeTab === 'owner' || activeTab === 'member') {
+      setActiveTab('home');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
+      <Navbar
+        currentUser={currentUser}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenAuth={(mode) => {
+          setAuthInitialMode(mode);
+          setAuthModalOpen(true);
+        }}
+        onLogout={handleLogout}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenNotifications={() => setNotificationsOpen(true)}
+        unreadCount={announcements.length}
+      />
+
+      <main className="flex-1 pb-20 md:pb-0">
+        {activeTab === 'home' && (
+          <HomeView
+            ownerProfile={ownerProfile}
+            projects={projects}
+            announcements={announcements}
+            setActiveTab={setActiveTab}
+          />
+        )}
+        {activeTab === 'about' && (
+          <AboutView
+            ownerProfile={ownerProfile}
+            currentUser={currentUser}
+            onUpdateProfile={(updated) => {
+              AppStorage.saveOwnerProfile(updated);
+              setOwnerProfile(updated);
+            }}
+            setActiveTab={setActiveTab}
+          />
+        )}
+        {activeTab === 'studio' && (
+          <StudioView
+            projects={projects}
+            currentUser={currentUser}
+            onBookmark={(id) => {
+              if (!currentUser) {
+                setAuthInitialMode('login');
+                setAuthModalOpen(true);
+                return;
+              }
+              const currentSaved = currentUser.savedProjects || [];
+              const updated = currentSaved.includes(id)
+                ? currentSaved.filter((x) => x !== id)
+                : [...currentSaved, id];
+              const userUpdated = { ...currentUser, savedProjects: updated };
+              AppStorage.setCurrentUser(userUpdated);
+              setCurrentUser(userUpdated);
+            }}
+          />
+        )}
+        {activeTab === 'community' && (
+          <CommunityView
+            currentUser={currentUser}
+            messages={messages}
+            onSendMessage={(msg) => {
+              const updated = AppStorage.addChatMessage(msg);
+              setMessages(updated);
+            }}
+            onOpenAuth={() => {
+              setAuthInitialMode('login');
+              setAuthModalOpen(true);
+            }}
+          />
+        )}
+        {activeTab === 'vault' && (
+          <VaultView
+            currentUser={currentUser}
+            items={vaultItems}
+            onSaveItem={(item) => {
+              const updated = AppStorage.saveVaultItem(item);
+              setVaultItems(updated);
+            }}
+            onDeleteItem={(id) => {
+              const updated = AppStorage.deleteVaultItem(id);
+              setVaultItems(updated);
+            }}
+            onOpenAuth={() => {
+              setAuthInitialMode('login');
+              setAuthModalOpen(true);
+            }}
+          />
+        )}
+        {activeTab === 'owner' && (
+          <OwnerDashboardView
+            currentUser={currentUser}
+            ownerProfile={ownerProfile}
+            projects={projects}
+            onUpdateProjects={(p) => {
+              AppStorage.saveProjects(p);
+              setProjects(p);
+            }}
+            onUpdateProfile={(prof) => {
+              AppStorage.saveOwnerProfile(prof);
+              setOwnerProfile(prof);
+            }}
+            setActiveTab={setActiveTab}
+          />
+        )}
+        {activeTab === 'member' && (
+          <MemberDashboardView
+            currentUser={currentUser}
+            projects={projects}
+            onUpdateUser={(u) => {
+              AppStorage.setCurrentUser(u);
+              setCurrentUser(u);
+            }}
+            setActiveTab={setActiveTab}
+          />
+        )}
+        {activeTab === 'contact' && <ContactView ownerProfile={ownerProfile} />}
+      </main>
+
+      <Footer
+        ownerProfile={ownerProfile}
+        setActiveTab={setActiveTab}
+        onOpenPrivacy={() => setPrivacyOpen(true)}
+        onOpenTerms={() => setTermsOpen(true)}
+      />
+
+      <MobileNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        currentUser={currentUser}
+        onOpenAuth={() => {
+          setAuthInitialMode('login');
+          setAuthModalOpen(true);
+        }}
+      />
+
+      {/* Global Modals */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        initialMode={authInitialMode}
+        onSuccess={(user) => {
+          AppStorage.setCurrentUser(user);
+          setCurrentUser(user);
+          setAuthModalOpen(false);
+        }}
+      />
+      <GlobalSearchModal
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        projects={projects}
+        onSelect={(tab) => {
+          setActiveTab(tab);
+          setSearchOpen(false);
+        }}
+      />
+      <NotificationCenter
+        isOpen={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        announcements={announcements}
+      />
+      <PrivacyModal isOpen={privacyOpen} onClose={() => setPrivacyOpen(false)} />
+      <TermsModal isOpen={termsOpen} onClose={() => setTermsOpen(false)} />
+    </div>
+  );
+}
